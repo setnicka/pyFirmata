@@ -6,7 +6,7 @@ import time
 
 import serial
 
-from .util import to_two_bytes, two_byte_iter_to_str
+from .util import to_two_bytes, two_byte_iter_to_str, from_two_bytes
 
 # Message command bytes (0x80(128) to 0xFF(255)) - straight from Firmata.h
 DIGITAL_MESSAGE = 0x90      # send data for a digital pin
@@ -95,6 +95,7 @@ class Board(object):
     _command = None
     _stored_data = []
     _parsing_sysex = False
+    _iterator = None
 
     def __init__(self, port, layout=None, baudrate=57600, name=None, timeout=None):
         self.sp = serial.Serial(port, baudrate, timeout=timeout)
@@ -204,6 +205,9 @@ class Board(object):
             self._get_pin(i).mode = UNAVAILABLE
 
         self._set_default_handlers()
+        for pin in self.pins:
+            if pin is not None:
+                pin.query_pin_state()
 
     def _set_default_handlers(self):
         # Setup default handlers for standard incoming commands
@@ -211,6 +215,7 @@ class Board(object):
         self.add_cmd_handler(DIGITAL_MESSAGE, self._handle_digital_message)
         self.add_cmd_handler(REPORT_VERSION, self._handle_report_version)
         self.add_cmd_handler(REPORT_FIRMWARE, self._handle_report_firmware)
+        self.add_cmd_handler(PIN_STATE_RESPONSE, self._handle_report_pin_state_response)
 
     def auto_setup(self):
         """
@@ -220,6 +225,7 @@ class Board(object):
         self.send_sysex(CAPABILITY_QUERY, [])
         self.pass_time(0.1)  # Serial SYNC
 
+        # No iterator started yet, no need to check it
         while self.bytes_available():
             self.iterate()
 
@@ -313,6 +319,11 @@ class Board(object):
 
     def bytes_available(self):
         return self.sp.inWaiting()
+
+    def iterate_if_no_iterator(self):
+        if self._iterator is None or not self._iterator.isAlive():
+            if self.bytes_available():
+                self.iterate()
 
     def iterate(self):
         """
@@ -465,6 +476,10 @@ class Board(object):
 
         self._layout = board_dict
 
+    def _handle_report_pin_state_response(self, pin, *data):
+        self.pins[pin].reported_mode = data[0]
+        self.pins[pin].reported_state = data[1:]
+
 
 class Port(object):
     """An 8-bit port on the board."""
@@ -521,7 +536,8 @@ class Port(object):
 
 
 class Pin(object):
-    """A Pin representation"""
+    """A Pin representation."""
+
     def __init__(self, board, pin_number, port=None, analog_pin_number=None, supported_modes=[]):
         self.board = board
         self.pin_number = pin_number
@@ -532,6 +548,8 @@ class Pin(object):
         self.reporting = False
         self.taken = False
         self.value = None
+        self.reported_mode = None
+        self.reported_state = None
 
     def __str__(self):
         if self.analog_pin_number is not None:
@@ -615,6 +633,32 @@ class Pin(object):
         else:
             self.port.disable_reporting()
             # TODO This is not going to work for non-optimized boards like Mega
+
+    def query_pin_state(self, wait_for_response=True):
+        """
+        Sends query for pin state.
+
+        :arg wait_for_response: Blocks until response received, then return
+        response.
+        """
+        self.reported_mode = None
+        self.reported_state = None
+        self.board.send_sysex(PIN_STATE_QUERY, [self.pin_number])
+
+        if not wait_for_response:
+            return
+        while self.reported_mode is None:
+            time.sleep(0.01)
+            self.board.iterate_if_no_iterator()
+        self._mode = self.reported_mode
+        value = from_two_bytes(self.reported_state)
+
+        # For OUTPUT mode returned state is always 0 -> better to act as unknown state
+        if self.mode == SERVO:
+            self.value = value
+        elif self.mode == PWM:
+            self.value = round(value / 255, 2)
+        return (self.reported_mode, value)
 
     def read(self):
         """

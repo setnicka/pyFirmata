@@ -39,6 +39,7 @@ def get_the_board(layout=BOARDS['arduino'], base_dir='/dev/', identifier='tty.us
 class Iterator(threading.Thread):
     def __init__(self, board):
         super(Iterator, self).__init__()
+        board._iterator = self
         self.board = board
         self.daemon = True
 
@@ -81,6 +82,8 @@ def from_two_bytes(bytes):
     """
     Return an integer from two 7 bit bytes.
     """
+    if len(bytes) == 1:
+        bytes = (bytes[0], 0)
     lsb, msb = bytes
     try:
         # Usually bytes have been converted to integers with ord already
