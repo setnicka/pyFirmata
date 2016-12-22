@@ -205,6 +205,7 @@ class Board(object):
             self._get_pin(i).mode = UNAVAILABLE
 
         self._set_default_handlers()
+        self.send_sysex(ANALOG_MAPPING_QUERY, [])
         for pin in self.pins:
             if pin is not None:
                 pin.query_pin_state()
@@ -216,6 +217,7 @@ class Board(object):
         self.add_cmd_handler(REPORT_VERSION, self._handle_report_version)
         self.add_cmd_handler(REPORT_FIRMWARE, self._handle_report_firmware)
         self.add_cmd_handler(PIN_STATE_RESPONSE, self._handle_report_pin_state_response)
+        self.add_cmd_handler(ANALOG_MAPPING_RESPONSE, self._handle_analog_mapping_response)
 
     def auto_setup(self):
         """
@@ -475,6 +477,18 @@ class Board(object):
             capabilities = []
 
         self._layout = board_dict
+
+    def _handle_analog_mapping_response(self, *data):
+        for (i, analog_pin) in enumerate(data):
+            if analog_pin == END_SYSEX:
+                break
+            if analog_pin == 127:
+                self._get_pin(i).analog_pin_number = None
+            else:
+                self._get_pin(i).analog_pin_number = analog_pin
+                while len(self.analog) <= analog_pin:
+                    self.analog.append(None)
+                self.analog[analog_pin] = self.pins[i]
 
     def _handle_report_pin_state_response(self, pin, *data):
         self.pins[pin].reported_mode = data[0]
