@@ -10,8 +10,8 @@ on Python 2.7, 3.3 and 3.4.
 
 Test & coverage status:
 
-.. image:: https://travis-ci.org/tino/pyFirmata.png?branch=master
-    :target: https://travis-ci.org/tino/pyFirmata
+.. image:: https://travis-ci.org/ysoftiota/pyFirmata.svg?branch=master
+    :target: https://travis-ci.org/ysoftiota/pyFirmata
 
 .. image:: https://coveralls.io/repos/github/tino/pyFirmata/badge.svg?branch=master
     :target: https://coveralls.io/github/tino/pyFirmata?branch=master
