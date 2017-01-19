@@ -83,6 +83,10 @@ class NoInputWarning(RuntimeWarning):
     pass
 
 
+class BoardSetupError(Exception):
+    pass
+
+
 class Board(object):
     """The Base class for any board."""
 
