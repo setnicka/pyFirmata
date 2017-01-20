@@ -1,29 +1,24 @@
-=========
-pyFirmata
-=========
+============================
+pyFirmata (Y Soft IOTA fork)
+============================
 
-pyFirmata is a Python interface for the `Firmata`_ protocol. It is fully
-compatible with Firmata 2.1, and has some functionality of version 2.2. It runs
-on Python 2.7, 3.3 and 3.4.
+pyFirmata is a Python interface for the `Firmata`_ protocol. It is compatible with Firmata 2.3.
+It runs on Python 2.7, 3.3 and 3.4.
 
 .. _Firmata: http://firmata.org
 
 Test & coverage status:
 
-.. image:: https://travis-ci.org/tino/pyFirmata.png?branch=master
-    :target: https://travis-ci.org/tino/pyFirmata
+.. image:: https://travis-ci.org/ysoftiota/pyFirmata.png?branch=master
+    :target: https://travis-ci.org/ysoftiota/pyFirmata
 
-.. image:: https://coveralls.io/repos/github/tino/pyFirmata/badge.svg?branch=master
-    :target: https://coveralls.io/github/tino/pyFirmata?branch=master
+.. image:: https://coveralls.io/repos/github/ysoftiota/pyFirmata/badge.svg?branch=master
+    :target: https://coveralls.io/github/ysoftiota/pyFirmata?branch=master
 
 Installation
 ============
 
-The preferred way to install is with pip_::
-
-    pip install pyfirmata
-
-You can also install from source with ``python setup.py install``. You will
+Current could be only installed from source with ``python setup.py install``. You will
 need to have `setuptools`_ installed::
 
     git clone https://github.com/tino/pyFirmata
@@ -37,12 +32,34 @@ need to have `setuptools`_ installed::
 Usage
 =====
 
-Basic usage::
+Board init
+----------
 
-    >>> from pyfirmata import Arduino, util
-    >>> board = Arduino('/dev/tty.usbserial-A6008rIF')
+Library has autodetection function, which scans all opened ports and tries
+to detect the only one connected board:
+
+    >>> import pyfirmata
+    >>> board = pyfirmata.util.autoload_board()
+   
+Ports are filtered with port description provided from the device, default
+filtering is ``ports_filter="Arduino"`` (which filters for ports with
+description starting as ``Arduino``), but it can be modified or fully disabled
+by passing ``None``:
+
+    >>> board = pyfirmata.util.autoload_board(ports_filter="YSoft IOTA Play")
+    >>> board = pyfirmata.util.autoload_board(ports_filter=None)
+    
+If you have more devices connected to the computer at the same time or if you
+want to specify port by hand, you could directly call board constructor:
+
+    >>> board = pyfirmata.board('/dev/ttyACM0')
+    >>> board = pyfirmata.board('COM10')
+
+Basic usage
+----------
+
     >>> board.digital[13].write(1)
-
+    
 To use analog ports, it is probably handy to start an iterator thread.
 Otherwise the board will keep sending data to your serial, until it overflows::
 
@@ -68,11 +85,18 @@ digital pin 3 as pwm.::
 Board layout
 ============
 
-If you want to use a board with a different layout than the standard Arduino
-or the Arduino Mega (for which there exist the shortcut classes
-``pyfirmata.Arduino`` and ``pyfirmata.ArduinoMega``), instantiate the Board
-class with a dictionary as the ``layout`` argument. This is the layout dict
-for the Mega for example::
+Board layout is loaded directly from the board, but if you want to specify
+board layout by hand (and disable loading from the board), you could do it.
+
+There are two shortcut classes ``pyfirmata.Arduino`` and ``pyfirmata.ArduinoMega``,
+which instantiate the Board class with a given layout dictionary:
+
+    >>> from pyfirmata import Arduino
+    >>> board = Arduino('/dev/ttyACM0')
+
+You could also  as the ``layout`` argument and specify your own layout (but
+we think that the autoloading is the best alternative). This is the layout
+dict for the Mega for example::
 
     >>> mega = {
     ...         'digital' : tuple(x for x in range(54)),
@@ -81,13 +105,3 @@ for the Mega for example::
     ...         'use_ports' : True,
     ...         'disabled' : (0, 1, 14, 15) # Rx, Tx, Crystal
     ...         }
-
-Todo
-====
-
-The next things on my list are to implement the new protocol changes in
-firmata:
-
-- Pin State Query, which allows it to populate on-screen controls with an
-  accurate representation of the hardware's configuration
-  (http://firmata.org/wiki/Proposals#Pin_State_Query_.28added_in_version_2.2.29)
