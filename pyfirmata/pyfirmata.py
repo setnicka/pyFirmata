@@ -70,7 +70,7 @@ DIGITAL = OUTPUT   # same as OUTPUT below
 # ANALOG is already defined above
 
 # Time to wait after initializing serial, used in Board.__init__
-BOARD_SETUP_WAIT_TIME = 5
+BOARD_SETUP_WAIT_TIME = 1
 
 
 class PinAlreadyTakenError(Exception):
@@ -191,7 +191,6 @@ class Board(object):
         )
         for i, a in enumerate(self.analog):
             a.analog_pin_number = i
-            a.mode = ANALOG
 
         # Setup pins into ports
         self.digital_ports = []
