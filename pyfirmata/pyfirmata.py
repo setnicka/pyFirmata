@@ -57,6 +57,8 @@ PWM = 3            # digital pin in PWM output mode
 SERVO = 4          # digital pin in SERVO mode
 I2C = 6            # pin belonging to I2C pair
 
+UNKNOWN = 123
+
 modes_names = {
     INPUT: "INPUT",
     OUTPUT: "OUTPUT",
@@ -664,7 +666,8 @@ class Pin(object):
         while self.reported_mode is None:
             time.sleep(0.01)
             self.board.iterate_if_no_iterator()
-        self._mode = self.reported_mode
+        if self.reported_mode != UNKNOWN:
+            self._mode = self.reported_mode
         value = from_two_bytes(self.reported_state)
 
         # For OUTPUT mode returned state is always 0 -> better to act as unknown state

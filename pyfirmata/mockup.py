@@ -1,3 +1,4 @@
+"""Mockup object used for testing."""
 from collections import deque
 
 import pyfirmata
@@ -5,21 +6,36 @@ import pyfirmata
 
 class MockupSerial(deque):
     """
-    A Mockup object for python's Serial. Functions as a fifo-stack. Push to
+    A Mockup object for python's Serial.
+
+    Functions as a fifo-stack. Push to
     it with ``write``, read from it with ``read``.
     """
 
+    preparedResponses = []
+
     def __init__(self, port, baudrate, timeout=0.02):
         self.port = port or 'somewhere'
+        self.response = []
+        self.last_pos = 0
 
     def read(self, count=1):
+        """Read incoming data."""
+        val = self.response[:count]
+        self.response = self.response[count:]
+
+        return bytearray(val)
+
+    def imitate_message(self, response):
+        """Imitate message from the board."""
+        self.response.extend(response)
+
+    def get_writed(self, count=1):
+        """Return writed bytes."""
         if count > 1:
             val = []
-            for i in range(count):
-                try:
-                    val.append(self.popleft())
-                except IndexError:
-                    break
+            for i in range(min(count, len(self))):
+                val.append(self.popleft())
         else:
             try:
                 val = self.popleft()
@@ -30,21 +46,50 @@ class MockupSerial(deque):
         return bytearray(val)
 
     def write(self, value):
-        """
-        Appends bytes flat to the deque. So iterables will be unpacked.
-        """
+        """Appends bytes flat to the deque. So iterables will be unpacked."""
         if hasattr(value, '__iter__'):
             bytearray(value)
             self.extend(value)
         else:
             bytearray([value])
             self.append(value)
+        new_pos = self.last_pos
+        for (pattern, answer) in self.preparedResponses:
+            ret = self._find_pattern(pattern)
+            if ret is not False:
+                new_pos = max(new_pos, ret[0])
+                if callable(answer):
+                    self.response = answer(ret[1])
+                else:
+                    self.response = answer
+        self.last_pos = new_pos
+
+    def _find_pattern(self, pattern):
+        p = 0
+        v = self.last_pos
+        value = []
+        while v < len(self):
+            if pattern[p] == self[v] or pattern[p] is None:
+                value.append(self[v])
+                p += 1
+                v += 1
+            else:
+                value = []
+                v = v - p + 1
+                p = 0
+            if p == len(pattern):
+                return (v, value)
+        return False
+
+    def clear(self):
+        self.last_pos = 0
+        deque.clear(self)
 
     def close(self):
         self.clear()
 
     def inWaiting(self):
-        return len(self)
+        return len(self.response)
 
 
 class MockupBoard(pyfirmata.Board):

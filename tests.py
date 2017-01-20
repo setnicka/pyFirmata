@@ -26,22 +26,47 @@ class BoardBaseTest(unittest.TestCase):
     def setUp(self):
         # Test with the MockupSerial so no real connection is needed
         pyfirmata.pyfirmata.serial.Serial = mockup.MockupSerial
+
+        mockup.MockupSerial.preparedResponses = []
+        mockup.MockupSerial.preparedResponses.append((
+            [pyfirmata.START_SYSEX, pyfirmata.PIN_STATE_QUERY, None, pyfirmata.END_SYSEX],
+            self.respond_to_pin_state_query
+        ))
+
         # Set the wait time to a zero so we won't have to wait a couple of secs
         # each test
         pyfirmata.pyfirmata.BOARD_SETUP_WAIT_TIME = 0
         self.board = pyfirmata.Board('', BOARDS['arduino'])
         self.board._stored_data = []
+        self.board.sp.clear()
         # FIXME How can it be that a fresh instance sometimes still contains data?
+
+    def respond_to_pin_state_query(self, query):
+        pin_nr = query[2]
+        if hasattr(self, 'board') and self.board is not None:
+            mode = self.board.pins[pin_nr].mode
+        else:
+            mode = pyfirmata.UNKNOWN
+        if mode is None or mode < 0 or mode > 255:
+            mode = pyfirmata.UNKNOWN
+        resolution_lsb = 10
+        resolution_msb = 0
+
+        return [
+            pyfirmata.START_SYSEX, pyfirmata.PIN_STATE_RESPONSE,
+            pin_nr, mode, resolution_lsb, resolution_msb,
+            pyfirmata.END_SYSEX
+        ]
 
 
 class TestBoardMessages(BoardBaseTest):
     # TODO Test layout of Board Mega
     def assert_serial(self, *incoming_bytes):
         serial_msg = bytearray()
-        res = self.board.sp.read()
+        res = self.board.sp.get_writed()
         while res:
             serial_msg += res
-            res = self.board.sp.read()
+            res = self.board.sp.get_writed()
         self.assertEqual(bytearray(incoming_bytes), serial_msg)
 
     # First test the handlers
@@ -85,13 +110,13 @@ class TestBoardMessages(BoardBaseTest):
         self.assertEqual(self.board.analog[4].read(), None)
         self.assertEqual(self.board.analog[4].reporting, False)
         # Should do nothing as the pin isn't set to report
-        self.board.sp.write([pyfirmata.ANALOG_MESSAGE + 4, 127, 7])
+        self.board.sp.imitate_message([pyfirmata.ANALOG_MESSAGE + 4, 127, 7])
         self.board.iterate()
         self.assertEqual(self.board.analog[4].read(), None)
         self.board.analog[4].enable_reporting()
         self.board.sp.clear()
         # This should set analog port 4 to 1
-        self.board.sp.write([pyfirmata.ANALOG_MESSAGE + 4, 127, 7])
+        self.board.sp.imitate_message([pyfirmata.ANALOG_MESSAGE + 4, 127, 7])
         self.board.iterate()
         self.assertEqual(self.board.analog[4].read(), 1.0)
         self.board._stored_data = []
@@ -195,7 +220,7 @@ class TestBoardMessages(BoardBaseTest):
         mask = 0
         mask |= 1 << (9 - 8)  # set the bit for pin 9 to to 1
         self.assertEqual(self.board.digital[9].read(), None)
-        self.board.sp.write([pyfirmata.DIGITAL_MESSAGE + 1, mask % 128, mask >> 7])
+        self.board.sp.imitate_message([pyfirmata.DIGITAL_MESSAGE + 1, mask % 128, mask >> 7])
         self.board.iterate()
         self.assertEqual(self.board.digital[9].read(), True)
 
@@ -206,7 +231,7 @@ class TestBoardMessages(BoardBaseTest):
     # 2  minor version (0-127)
     def test_incoming_report_version(self):
         self.assertEqual(self.board.firmata_version, None)
-        self.board.sp.write([pyfirmata.REPORT_VERSION, 2, 1])
+        self.board.sp.imitate_message([pyfirmata.REPORT_VERSION, 2, 1])
         self.board.iterate()
         self.assertEqual(self.board.firmata_version, (2, 1))
 
@@ -227,7 +252,7 @@ class TestBoardMessages(BoardBaseTest):
                2,
                1] + list(str_to_two_byte_iter('Firmware_name')) + \
               [pyfirmata.END_SYSEX]
-        self.board.sp.write(msg)
+        self.board.sp.imitate_message(msg)
         self.board.iterate()
         self.assertEqual(self.board.firmware, 'Firmware_name')
         self.assertEqual(self.board.firmware_version, (2, 1))
@@ -280,8 +305,8 @@ class TestBoardMessages(BoardBaseTest):
 
     def test_receive_sysex_message(self):
         sysex = bytearray([0xF0, 0x79, 2, 1, ord('a'), 0, ord('b'), 0, ord('c'), 0, 0xF7])
-        self.board.sp.write(sysex)
-        while len(self.board.sp):
+        self.board.sp.imitate_message(sysex)
+        while self.board.bytes_available():
             self.board.iterate()
         self.assertEqual(self.board.firmware_version, (2, 1))
         self.assertEqual(self.board.firmware, 'abc')
@@ -294,12 +319,12 @@ class TestBoardMessages(BoardBaseTest):
         self.board.analog[4].enable_reporting()
         self.board.sp.clear()
         # Crap
-        self.board.sp.write([i for i in range(10)])
+        self.board.sp.imitate_message([i for i in range(10)])
         # This should set analog port 4 to 1
-        self.board.sp.write([pyfirmata.ANALOG_MESSAGE + 4, 127, 7])
+        self.board.sp.imitate_message([pyfirmata.ANALOG_MESSAGE + 4, 127, 7])
         # Crap
-        self.board.sp.write([10 - i for i in range(10)])
-        while len(self.board.sp):
+        self.board.sp.imitate_message([10 - i for i in range(10)])
+        while self.board.bytes_available():
             self.board.iterate()
         self.assertEqual(self.board.analog[4].read(), 1.0)
 
@@ -362,9 +387,15 @@ class TestBoardLayout(BoardBaseTest):
 
     def test_layout_arduino_mega(self):
         pyfirmata.pyfirmata.serial.Serial = mockup.MockupSerial
-        mega = pyfirmata.Board('', BOARDS['arduino_mega'])
-        self.assertEqual(len(BOARDS['arduino_mega']['digital']), len(mega.digital))
-        self.assertEqual(len(BOARDS['arduino_mega']['analog_real']), len(mega.analog))
+        mockup.MockupSerial.preparedResponses = []
+        mockup.MockupSerial.preparedResponses.append((
+            [pyfirmata.START_SYSEX, pyfirmata.PIN_STATE_QUERY, None, pyfirmata.END_SYSEX],
+            self.respond_to_pin_state_query
+        ))
+        self.board = None
+        self.board = pyfirmata.Board('', BOARDS['arduino_mega'])
+        self.assertEqual(len(BOARDS['arduino_mega']['digital']), len(self.board.digital))
+        self.assertEqual(len(BOARDS['arduino_mega']['analog_real']), len(self.board.analog))
 
     def test_pwm_layout(self):
         pins = []
@@ -408,16 +439,16 @@ class TestMockupSerial(unittest.TestCase):
     def test_write_read(self):
         self.s.write(0xA1)
         self.s.write([1, 3, 5])
-        self.assertEqual(self.s.read(2), bytearray([0xA1, 0x01]))
+        self.assertEqual(self.s.get_writed(2), bytearray([0xA1, 0x01]))
         self.assertEqual(len(self.s), 2)
-        self.assertEqual(self.s.read(), bytearray([3]))
-        self.assertEqual(self.s.read(), bytearray([5]))
+        self.assertEqual(self.s.get_writed(), bytearray([3]))
+        self.assertEqual(self.s.get_writed(), bytearray([5]))
         self.assertEqual(len(self.s), 0)
-        self.assertEqual(self.s.read(), bytearray())
-        self.assertEqual(self.s.read(2), bytearray())
+        self.assertEqual(self.s.get_writed(), bytearray())
+        self.assertEqual(self.s.get_writed(2), bytearray())
 
     def test_none(self):
-        self.assertEqual(self.s.read(), bytearray())
+        self.assertEqual(self.s.get_writed(), bytearray())
 
 
 class TestMockupBoardLayout(TestBoardLayout, TestBoardMessages):
@@ -429,6 +460,7 @@ class TestMockupBoardLayout(TestBoardLayout, TestBoardMessages):
 
     def setUp(self):
         self.board = mockup.MockupBoard('test', BOARDS['arduino'])
+        self.board.sp.clear()
 
 
 class RegressionTests(BoardBaseTest):
